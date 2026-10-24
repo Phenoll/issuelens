@@ -114,22 +114,72 @@ export default function App() {
     return () => clearInterval(intervalId)
   }, [])
 
-  // Keyboard shortcut '/' or Cmd+K to focus quick search
+  // Keyboard shortcuts: '/', Cmd+K, 'j'/'k', ArrowDown/ArrowUp, and 'c'
   useEffect(() => {
     const handleKeyDown = (e) => {
+      const activeTag = document.activeElement?.tagName
+      const isInputActive = activeTag === 'INPUT' || activeTag === 'TEXTAREA' || document.activeElement?.isContentEditable
+      if (isInputActive) return
+
+      // Quick search focus
       if (
-        (e.key === '/' ||
-          ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k')) &&
-        document.activeElement?.tagName !== 'INPUT' &&
-        document.activeElement?.tagName !== 'TEXTAREA'
+        e.key === '/' ||
+        ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k')
       ) {
         e.preventDefault()
         searchInputRef.current?.focus()
+        return
+      }
+
+      // 'c' shortcut: Copy AI-drafted reply of currently selected issue
+      if (e.key.toLowerCase() === 'c' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        const replyText = selectedIssue?.triage_report?.drafted_reply || draftedReply
+        if (replyText && replyText.trim()) {
+          e.preventDefault()
+          navigator.clipboard.writeText(replyText).then(() => {
+            setCopied(true)
+            setBanner({
+              type: 'success',
+              message: 'Copied AI triage reply to clipboard! (shortcut: c)',
+            })
+            setTimeout(() => {
+              setCopied(false)
+              setBanner(null)
+            }, 2000)
+          }).catch(() => {})
+        }
+        return
+      }
+
+      // 'j' / ArrowDown: Next issue in list
+      if ((e.key === 'j' || e.key === 'ArrowDown') && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        if (!filteredIssues || filteredIssues.length === 0) return
+        e.preventDefault()
+        const currentIndex = filteredIssues.findIndex((item) => item.id === selectedId)
+        if (currentIndex === -1) {
+          setSelectedId(filteredIssues[0].id)
+        } else if (currentIndex < filteredIssues.length - 1) {
+          setSelectedId(filteredIssues[currentIndex + 1].id)
+        }
+        return
+      }
+
+      // 'k' / ArrowUp: Previous issue in list
+      if ((e.key === 'k' || e.key === 'ArrowUp') && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        if (!filteredIssues || filteredIssues.length === 0) return
+        e.preventDefault()
+        const currentIndex = filteredIssues.findIndex((item) => item.id === selectedId)
+        if (currentIndex === -1) {
+          setSelectedId(filteredIssues[0].id)
+        } else if (currentIndex > 0) {
+          setSelectedId(filteredIssues[currentIndex - 1].id)
+        }
+        return
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [])
+  }, [filteredIssues, selectedId, selectedIssue, draftedReply])
 
   const handleSelectRepoFilter = (repoSlug) => {
     setSelectedRepoFilter(repoSlug)
@@ -890,6 +940,28 @@ export default function App() {
                   />
                 ))
               )}
+            </div>
+
+            {/* Subtle Keyboard Shortcuts Keycap Footer */}
+            <div className="sticky bottom-0 z-10 flex items-center justify-between border-t border-white/[0.06] bg-[#0A0B10]/95 px-4 py-2 text-[11px] text-zinc-400 backdrop-blur-md">
+              <div className="flex items-center gap-3">
+                <span className="flex items-center gap-1">
+                  <kbd className="rounded border border-zinc-700 bg-zinc-800/80 px-1.5 py-0.5 font-mono text-[10px] text-zinc-300">J</kbd>
+                  <kbd className="rounded border border-zinc-700 bg-zinc-800/80 px-1.5 py-0.5 font-mono text-[10px] text-zinc-300">K</kbd>
+                  <span className="text-zinc-500">navigate</span>
+                </span>
+                <span className="flex items-center gap-1">
+                  <kbd className="rounded border border-zinc-700 bg-zinc-800/80 px-1.5 py-0.5 font-mono text-[10px] text-zinc-300">C</kbd>
+                  <span className="text-zinc-500">copy reply</span>
+                </span>
+                <span className="flex items-center gap-1">
+                  <kbd className="rounded border border-zinc-700 bg-zinc-800/80 px-1.5 py-0.5 font-mono text-[10px] text-zinc-300">/</kbd>
+                  <span className="text-zinc-500">search</span>
+                </span>
+              </div>
+              <span className="text-[10px] text-zinc-500 font-mono">
+                {filteredIssues.length} {filteredIssues.length === 1 ? 'issue' : 'issues'}
+              </span>
             </div>
           </section>
 

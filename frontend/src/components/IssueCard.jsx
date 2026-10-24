@@ -27,7 +27,7 @@ export default function IssueCard({ issue, isSelected, onSelect }) {
       onClick={() => onSelect(issue.id)}
       className={`group relative flex w-full flex-col gap-2 overflow-hidden border-b border-zinc-800/80 p-3.5 text-left transition-all duration-150 ${
         isSelected
-          ? 'border-l-2 border-l-indigo-400 bg-white/[0.045] pl-[12px]'
+          ? 'border-l-2 border-l-indigo-400 bg-zinc-800/60 pl-[12px] shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05)]'
           : 'hover:bg-white/[0.025]'
       }`}
     >
