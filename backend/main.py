@@ -522,3 +522,86 @@ async def reply_to_issue_endpoint(
         comment_url=gh_comment.get("html_url"),
         github_comment_id=gh_comment.get("id"),
     )
+
+
+import hmac
+import hashlib
+import os
+from fastapi import Request, BackgroundTasks
+
+GITHUB_WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET", "demo-webhook-secret-token")
+
+def verify_github_signature(payload_body: bytes, signature_header: str | None) -> bool:
+    if not signature_header or not signature_header.startswith("sha256="):
+        return False
+    expected_signature = signature_header[7:]
+    mac = hmac.new(GITHUB_WEBHOOK_SECRET.encode("utf-8"), msg=payload_body, digestmod=hashlib.sha256)
+    computed_signature = mac.hexdigest()
+    return hmac.compare_digest(computed_signature, expected_signature)
+
+async def _process_incoming_webhook_triage(payload: dict) -> None:
+    action = payload.get("action")
+    if action not in ["opened", "reopened"]:
+        return
+    
+    issue_data = payload.get("issue") or payload.get("pull_request")
+    if not issue_data:
+        return
+
+    repo_data = payload.get("repository", {})
+    owner = repo_data.get("owner", {}).get("login") or repo_data.get("owner", {}).get("name")
+    name = repo_data.get("name")
+    if not owner or not name:
+        return
+
+    with SessionLocal() as db:
+        repo = db.scalar(select(Repository).where(Repository.owner == owner, Repository.name == name))
+        if not repo:
+            repo = Repository(owner=owner, name=name)
+            db.add(repo)
+            db.flush()
+
+        github_id = issue_data.get("number")
+        is_pr = "pull_request" in payload or "pull_request" in issue_data
+        existing_issue = db.scalar(select(Issue).where(Issue.repo_id == repo.id, Issue.github_issue_id == github_id))
+        
+        if not existing_issue:
+            existing_issue = Issue(
+                repo_id=repo.id,
+                github_issue_id=github_id,
+                title=issue_data.get("title", ""),
+                body=issue_data.get("body") or "",
+                author=issue_data.get("user", {}).get("login", "unknown"),
+                is_pr=is_pr,
+                state="open",
+                bounty_xlm=calculate_bounty_xlm('Medium')[1],
+                bounty_status="escrowed"
+            )
+            db.add(existing_issue)
+            db.flush()
+        
+        # Run AI triage evaluation
+        try:
+            run_triage_for_issue(existing_issue.id, db)
+        except Exception:
+            pass
+
+@app.post("/api/webhooks/github")
+async def github_webhook_endpoint(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
+    signature = request.headers.get("X-Hub-Signature-256")
+    body_bytes = await request.body()
+    
+    if not verify_github_signature(body_bytes, signature):
+        raise HTTPException(status_code=401, detail="Invalid or missing X-Hub-Signature-256")
+
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
+    background_tasks.add_task(_process_incoming_webhook_triage, payload)
+    return {"status": "accepted", "event": request.headers.get("X-GitHub-Event", "unknown")}

@@ -355,3 +355,41 @@ def test_stellar_bounty_payout_and_network_status_endpoints(client, db_session):
     assert net_data["network"] == "TESTNET"
     assert net_data["horizon_url"] == "https://horizon-testnet.stellar.org"
 
+
+
+
+import hmac
+import hashlib
+import json
+
+def test_github_webhook_hmac_verification(client):
+    secret = "demo-webhook-secret-token"
+    payload = {
+        "action": "opened",
+        "issue": {
+            "number": 999,
+            "title": "Webhook test issue for automated triage",
+            "body": "This is a test issue payload for IssueLens automated webhook ingestion.",
+            "user": {"login": "stellar-dev"}
+        },
+        "repository": {
+            "owner": {"login": "stellar"},
+            "name": "stellar-soroban-env"
+        }
+    }
+    body_bytes = json.dumps(payload).encode("utf-8")
+    
+    # Test 1: Missing signature -> 401
+    resp_no_sig = client.post("/api/webhooks/github", content=body_bytes)
+    assert resp_no_sig.status_code == 401
+
+    # Test 2: Invalid signature -> 401
+    resp_bad_sig = client.post("/api/webhooks/github", content=body_bytes, headers={"X-Hub-Signature-256": "sha256=invalidhex"})
+    assert resp_bad_sig.status_code == 401
+
+    # Test 3: Valid signature -> 200 Accepted
+    mac = hmac.new(secret.encode("utf-8"), msg=body_bytes, digestmod=hashlib.sha256)
+    valid_sig = f"sha256={mac.hexdigest()}"
+    resp_valid = client.post("/api/webhooks/github", content=body_bytes, headers={"X-Hub-Signature-256": valid_sig, "X-GitHub-Event": "issues"})
+    assert resp_valid.status_code == 200
+    assert resp_valid.json()["status"] == "accepted"
