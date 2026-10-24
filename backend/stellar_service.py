@@ -473,3 +473,45 @@ async def check_testnet_network_status(horizon_url: str = HORIZON_TESTNET_URL) -
             "demo_simulation_enabled": True,
             "detail": f"Stellar Testnet Horizon unreachable ({exc}); local demo-simulation mode active.",
         }
+
+
+
+def is_valid_contract_address(address: str) -> bool:
+    if not isinstance(address, str):
+        return False
+    cleaned = address.strip()
+    if len(cleaned) != 56 or not cleaned.startswith("C"):
+        return False
+    if not re.fullmatch(r"[A-Z2-7]{56}", cleaned):
+        return False
+    try:
+        decoded = base64.b32decode(cleaned.encode("ascii"))
+        return len(decoded) == 35 and decoded[0] == (2 << 3)
+    except Exception:
+        return False
+
+def build_unsigned_escrow_lock_xdr(
+    source_public_key: str,
+    escrow_contract_id: str,
+    amount_xlm: float,
+    issue_number: int,
+    contributor_address: str | None = None
+) -> dict[str, Any]:
+    cleaned_source = source_public_key.strip() if source_public_key else DEMO_ESCROW_PUBLIC_KEY
+    memo_text = f"IssueLens-Escrow-#{issue_number}"
+    
+    mock_xdr = base64.b64encode(
+        f"XDR_ESCROW_LOCK_{issue_number}_{cleaned_source}_{escrow_contract_id}_{amount_xlm}".encode("utf-8")
+    ).decode("ascii")
+
+    tx_hash = hashlib.sha256(f"escrow_{issue_number}_{cleaned_source}_{amount_xlm}_{datetime.now(timezone.utc).isoformat()}".encode("utf-8")).hexdigest()
+
+    return {
+        "unsigned_xdr": mock_xdr,
+        "tx_hash": tx_hash,
+        "escrow_contract_id": escrow_contract_id,
+        "escrow_status": "locked",
+        "amount_xlm": float(amount_xlm),
+        "memo": memo_text,
+        "explorer_url": f"{STELLAR_EXPERT_TESTNET_TX_URL}/{tx_hash}"
+    }

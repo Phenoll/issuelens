@@ -6,7 +6,7 @@ from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, Stri
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 ComplexityLevel = Literal["Low", "Medium", "High"]
-BountyStatusType = Literal["unfunded", "escrowed", "paid"]
+BountyStatusType = Literal["unfunded", "escrowed", "locked", "released", "refunded", "paid"]
 
 COMPLEXITY_BOUNTY_XLM: dict[str, float] = {
     "Low": 25.0,
@@ -14,7 +14,7 @@ COMPLEXITY_BOUNTY_XLM: dict[str, float] = {
     "High": 150.0,
 }
 
-VALID_BOUNTY_STATUSES: tuple[str, ...] = ("unfunded", "escrowed", "paid")
+VALID_BOUNTY_STATUSES: tuple[str, ...] = ("unfunded", "escrowed", "locked", "released", "refunded", "paid")
 
 
 def utc_now() -> datetime:
@@ -130,6 +130,12 @@ class Issue(Base):
     )
     stellar_tx_hash: Mapped[str | None] = mapped_column(
         String(128), nullable=True, default=None
+    )
+    escrow_contract_id: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, default=None
+    )
+    escrow_status: Mapped[str] = mapped_column(
+        String(32), default="unfunded", nullable=False
     )
 
     repository: Mapped["Repository"] = relationship("Repository", back_populates="issues")
@@ -288,3 +294,22 @@ class RepoSyncResponse(BaseModel):
     repository: RepositoryRead
     synced_count: int
     issues: list[IssueRead]
+
+
+class EscrowLockRequest(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    escrow_contract_id: str | None = Field(default=None, description="Soroban escrow contract address (C...)")
+    amount_xlm: float | None = Field(default=None, ge=1.0, description="Amount of XLM to lock in escrow")
+    contributor_stellar_address: str | None = Field(default=None, description="Contributor G... public address")
+    tx_hash: str | None = Field(default=None, description="Submitted on-chain transaction hash")
+
+class EscrowLockResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    issue_id: int
+    github_issue_id: int
+    escrow_contract_id: str | None
+    escrow_status: str
+    amount_xlm: float
+    tx_hash: str
+    unsigned_xdr: str | None = None
+    explorer_url: str | None = None

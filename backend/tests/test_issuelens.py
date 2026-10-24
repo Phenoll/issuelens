@@ -355,3 +355,36 @@ def test_stellar_bounty_payout_and_network_status_endpoints(client, db_session):
     assert net_data["network"] == "TESTNET"
     assert net_data["horizon_url"] == "https://horizon-testnet.stellar.org"
 
+
+
+
+def test_soroban_escrow_lock_endpoint(client, db_session):
+    repo = Repository(owner="stellar", name="stellar-escrow-repo")
+    db_session.add(repo)
+    db_session.flush()
+
+    issue = Issue(
+        repo_id=repo.id,
+        github_issue_id=2026,
+        title="Add Soroban escrow lock support",
+        body="Escrow lock test for issue.",
+        author="stellar-dev",
+        is_pr=False,
+        state="open",
+        bounty_xlm=150.0,
+        bounty_status="unfunded"
+    )
+    db_session.add(issue)
+    db_session.commit()
+
+    resp = client.post(f"/api/issues/{issue.id}/bounty/lock", json={
+        "escrow_contract_id": "CA76M4CWXMI5ZWTF2H6PVI6KGV323HCBIM6G6EHFNRFDZ2G2WPPWARE",
+        "amount_xlm": 150.0
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["escrow_status"] == "locked"
+    assert data["amount_xlm"] == 150.0
+    assert data["escrow_contract_id"].startswith("C")
+    assert "unsigned_xdr" in data
+    assert "tx_hash" in data

@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session, selectinload
 from database import Issue, Repository, SessionLocal, TriageReport, get_db, init_db
 from github_service import post_issue_comment, sync_repository_issues
 from models import (
+    EscrowLockRequest,
+    EscrowLockResponse,
     BountyPayoutRequest,
     BountyPayoutResponse,
     IssueRead,
@@ -521,4 +523,44 @@ async def reply_to_issue_endpoint(
         posted_body=reply_text,
         comment_url=gh_comment.get("html_url"),
         github_comment_id=gh_comment.get("id"),
+    )
+
+
+
+@app.post("/api/issues/{id}/bounty/lock", response_model=EscrowLockResponse)
+async def lock_bounty_in_escrow_endpoint(
+    id: int,
+    payload: EscrowLockRequest | None = Body(default=None),
+    db: Session = Depends(get_db)
+) -> EscrowLockResponse:
+    issue = db.scalar(select(Issue).where(Issue.id == id))
+    if not issue:
+        raise HTTPException(status_code=404, detail=f"Issue {id} not found")
+
+    amount = payload.amount_xlm if (payload and payload.amount_xlm) else issue.bounty_xlm
+    contract_id = (payload.escrow_contract_id if payload else None) or "CA76M4CWXMI5ZWTF2H6PVI6KGV323HCBIM6G6EHFNRFDZ2G2WPPWARE"
+    
+    from stellar_service import build_unsigned_escrow_lock_xdr
+    lock_result = build_unsigned_escrow_lock_xdr(
+        source_public_key=issue.contributor_stellar_address or DEMO_ESCROW_PUBLIC_KEY,
+        escrow_contract_id=contract_id,
+        amount_xlm=amount,
+        issue_number=issue.github_issue_id
+    )
+
+    issue.escrow_contract_id = contract_id
+    issue.escrow_status = "locked"
+    issue.bounty_status = "escrowed"
+    issue.stellar_tx_hash = payload.tx_hash if (payload and payload.tx_hash) else lock_result["tx_hash"]
+    db.commit()
+
+    return EscrowLockResponse(
+        issue_id=issue.id,
+        github_issue_id=issue.github_issue_id,
+        escrow_contract_id=contract_id,
+        escrow_status="locked",
+        amount_xlm=float(amount),
+        tx_hash=issue.stellar_tx_hash,
+        unsigned_xdr=lock_result["unsigned_xdr"],
+        explorer_url=lock_result["explorer_url"]
     )
