@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { isConnected, requestAccess, getNetwork, signTransaction } from '@stellar/freighter-api'
 import {
   AlertCircle,
   ArrowUpDown,
@@ -264,32 +265,44 @@ export default function App() {
   const handleConnectStellarWallet = async () => {
     if (walletAddress) {
       setWalletAddress(null)
+      setBanner({
+        type: 'info',
+        message: 'Wallet disconnected.',
+      })
       return
     }
     setConnectingWallet(true)
     try {
-      if (
-        typeof window !== 'undefined' &&
-        window.freighterApi &&
-        typeof window.freighterApi.getPublicKey === 'function'
-      ) {
-        const pubKey = await window.freighterApi.getPublicKey()
-        if (pubKey) {
+      const connected = await isConnected()
+      if (connected) {
+        const access = await requestAccess()
+        const pubKey = access?.address || access
+        if (pubKey && typeof pubKey === 'string' && pubKey.startsWith('G')) {
           setWalletAddress(pubKey)
+          let networkName = 'TESTNET'
+          try {
+            const net = await getNetwork()
+            if (net) networkName = net.toUpperCase()
+          } catch {}
           setBanner({
             type: 'success',
-            message: `Freighter connected: ${truncateStellarAddress(pubKey)}`,
+            message: `Freighter connected: ${truncateStellarAddress(pubKey)} (${networkName})`,
           })
           return
         }
       }
+      // Graceful fallback to demo mode if extension not installed or rejected
       setWalletAddress(DEFAULT_DEMO_STELLAR_ADDRESS)
       setBanner({
-        type: 'success',
-        message: `Connected Freighter Testnet key: ${truncateStellarAddress(DEFAULT_DEMO_STELLAR_ADDRESS)}`,
+        type: 'info',
+        message: 'Freighter extension not detected; active in Demo Simulation mode.',
       })
-    } catch {
+    } catch (err) {
       setWalletAddress(DEFAULT_DEMO_STELLAR_ADDRESS)
+      setBanner({
+        type: 'info',
+        message: `Freighter connection fallback: ${err?.message || 'using demo simulation wallet'}.`,
+      })
     } finally {
       setConnectingWallet(false)
     }
